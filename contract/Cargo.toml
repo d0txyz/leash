@@ -1,0 +1,23 @@
+[package]
+name = "leash-vault"
+description = "Leash: an on-chain spending policy for AI agents on NEAR"
+version = "1.0.0"
+edition = "2021"
+repository = "https://github.com/d0txyz/leash"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5.15"
+
+[dev-dependencies]
+near-sdk = { version = "5.15", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

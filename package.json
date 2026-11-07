@@ -1,0 +1,40 @@
+{
+  "name": "leash",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit",
+    "contract:test": "cd contract && cargo test",
+    "contract:build": "cd contract && cargo near build non-reproducible-wasm --no-abi",
+    "setup:testnet": "tsx scripts/setup-testnet.ts",
+    "attack": "tsx scripts/attack-demo.ts",
+    "owner": "tsx scripts/owner.ts",
+    "mcp": "tsx mcp/leash-mcp.ts",
+    "mcp:smoke": "tsx mcp/smoke.ts"
+  },
+  "dependencies": {
+    "@hot-labs/near-connect": "^0.11.4",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "near-api-js": "^7.4.0",
+    "near-connect-hooks": "^1.1.6",
+    "next": "^15.5.29",
+    "openai": "^7.53.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "dotenv": "^18.0.9",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
