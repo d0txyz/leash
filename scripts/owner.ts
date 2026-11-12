@@ -18,6 +18,12 @@
  *   npm run owner -- check <account> <near>  # free dry run: what would request_spend do?
  *   npm run owner -- tripwire <refusals> <minutes> [cooldown-minutes]  # e.g. tripwire 3 10 2
  *   npm run owner -- tripwire off
+ *   npm run owner -- eth-enable <per-payment ETH> <daily ETH> [max-fee-gwei] [tip-gwei]
+ *                     # cross-chain via Chain Signatures on Sepolia; reads the nonce from Sepolia,
+ *                     # allowlists the demo shop and blocklists the demo drainer
+ *   npm run owner -- eth-off
+ *   npm run owner -- eth-address    # the vault's Ethereum address and balance
+ *   npm run owner -- eth-send <id>  # (re)broadcast a signed Ethereum request
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -27,6 +33,8 @@ import type { KeyPairString } from "near-api-js";
 
 const { getProvider, viewVault, viewRequests, viewCheckSpend, resolveAccount, fmtNear, VAULT_ID } = await import("../src/lib/chain");
 const { ruleLabel } = await import("../src/lib/rules");
+const eth = await import("../src/lib/eth");
+const { parseEther, parseGwei } = await import("viem");
 
 const rootId = process.env.ROOT_ACCOUNT_ID!;
 const signer = KeyPairSigner.fromSecretKey(process.env.ROOT_PRIVATE_KEY as KeyPairString);
@@ -51,19 +59,76 @@ switch (cmd) {
         `tripwire: ${t.max_blocked} refusals in ${t.window_secs / 60} min, ${t.cooldown_secs ? `cooldown ${t.cooldown_secs / 60} min` : "owner must unfreeze"}; ${v.recent_blocked ?? 0} counted now${v.tripped_until ? ", TRIPPED" : ""}`,
       );
     }
+    if (v.eth) {
+      const e = v.eth;
+      const addr = await eth.deriveEthAddress();
+      const bal = await eth.ethBalance(addr).catch(() => null);
+      console.log(
+        `ethereum (${eth.ETH_CHAIN_NAME}): ${addr}, balance ${bal === null ? "?" : eth.fmtEth(bal)} ETH; ${eth.fmtEth(v.eth_spent_today ?? "0")} / ${eth.fmtEth(e.daily_cap)} ETH today, ${eth.fmtEth(e.per_tx_cap)} per payment, next nonce ${e.next_nonce}`,
+      );
+    }
     if (v.stats) {
       const s = v.stats;
       console.log(`stats: ${s.requests} requests, ${s.paid} paid (${fmtNear(s.near_paid, 2)} NEAR), ${s.blocked} blocked, ${s.denied} denied, ${s.tripwire_trips} tripwire freezes`);
     }
     for (const r of await viewRequests(15)) {
-      console.log(`#${r.id}  ${r.status.padEnd(8)} ${fmtNear(r.amount, 3).padStart(7)} NEAR -> ${r.receiver}  (${ruleLabel(r.rule)})`);
+      const amount = r.chain === "ethereum" ? `${eth.fmtEth(r.amount).padStart(7)} ETH ` : `${fmtNear(r.amount, 3).padStart(7)} NEAR`;
+      console.log(`#${r.id}  ${r.status.padEnd(8)} ${amount} -> ${r.receiver}  (${ruleLabel(r.rule)})`);
     }
     break;
   }
   case "approve":
-  case "deny":
-    console.log(await call(cmd, { id: Number(rest[0]) }));
+  case "deny": {
+    const id = Number(rest[0]);
+    const isEth = (await eth.isEthRequestId(id));
+    // Approving an Ethereum request also asks the MPC network to sign it.
+    const r = await root.callFunction({ contractId: VAULT_ID, methodName: cmd, args: { id }, gas: teraToGas(isEth ? "150" : "60") });
+    console.log(r);
+    if (cmd === "approve" && isEth) {
+      const out = await eth.settleEthRequest(id);
+      console.log(out.stage === "broadcast" ? `sent on ${eth.ETH_CHAIN_NAME}: ${eth.ethExplorerTx(out.hash)}` : out.message);
+    }
     break;
+  }
+  case "eth-enable": {
+    const [perTx, daily, maxFee = "20", tip = "1.5"] = rest;
+    if (!perTx || !daily) {
+      console.log("usage: eth-enable <per-payment ETH> <daily ETH> [max-fee-gwei] [tip-gwei]");
+      break;
+    }
+    const addr = await eth.deriveEthAddress();
+    const nonce = await eth.ethNonce(addr);
+    await call("enable_eth", {
+      chain_id: eth.ETH_CHAIN_ID,
+      mpc_contract: eth.MPC_CONTRACT,
+      per_tx_cap: parseEther(perTx).toString(),
+      daily_cap: parseEther(daily).toString(),
+      max_fee_per_gas: parseGwei(maxFee).toString(),
+      max_priority_fee_per_gas: parseGwei(tip).toString(),
+      next_nonce: nonce,
+    });
+    const { shop, drainer } = await eth.demoEthAccounts();
+    await call("allow", { account: shop.toLowerCase() });
+    await call("block", { account: drainer.toLowerCase(), reason: "reported drainer address" });
+    console.log(`ethereum on: ${addr} (nonce ${nonce}), ${perTx} ETH per payment, ${daily} ETH a day, fees up to ${maxFee} gwei`);
+    console.log(`allowlisted shop ${shop}, blocklisted drainer ${drainer}`);
+    break;
+  }
+  case "eth-off":
+    await call("disable_eth");
+    console.log("ethereum off: new cross-chain requests are blocked");
+    break;
+  case "eth-address": {
+    const addr = await eth.deriveEthAddress();
+    const bal = await eth.ethBalance(addr).catch(() => null);
+    console.log(`${addr}  ${bal === null ? "?" : eth.fmtEth(bal)} ETH on ${eth.ETH_CHAIN_NAME}  ${eth.ethExplorerAddress(addr)}`);
+    break;
+  }
+  case "eth-send": {
+    const out = await eth.settleEthRequest(Number(rest[0]));
+    console.log(out.stage === "broadcast" ? `sent: ${eth.ethExplorerTx(out.hash)}` : out.message);
+    break;
+  }
   case "deny-all": {
     const pending = (await viewRequests(100)).filter((r) => r.status === "Pending");
     for (const r of pending) {

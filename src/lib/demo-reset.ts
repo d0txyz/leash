@@ -25,7 +25,9 @@ export async function maybeResetWindow(): Promise<{ txHash: string } | null> {
   const left = BigInt(vault.daily_cap) - BigInt(vault.spent_today);
   // A receiver's own limit (e.g. the bookshop) can run out before the vault-wide cap.
   const receiverLow = (vault.receiver_caps ?? []).some((c) => BigInt(c.daily_cap) - BigInt(c.spent_today) < RECEIVER_LOW);
-  if (left >= LOW && !receiverLow) return null;
+  // The Ethereum allowance shares the same daily window.
+  const ethLow = !!vault.eth && BigInt(vault.eth.daily_cap) - BigInt(vault.eth_spent_today ?? "0") < BigInt(vault.eth.per_tx_cap);
+  if (left >= LOW && !receiverLow && !ethLow) return null;
   const [latest] = await viewRequests(1);
   if (latest && Date.now() - latest.created_at / 1e6 < IDLE_MS) return null;
 

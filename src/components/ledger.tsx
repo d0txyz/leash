@@ -3,15 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useNearWallet } from "near-connect-hooks";
 import { VAULT_ID, explorerAccount, fmtNear, shortAccount, type SpendRequest, type Vault } from "@/lib/chain";
+import { ethExplorerTx, fmtEth } from "@/lib/eth-links";
 import { StatusPill, ruleLabel, timeAgo } from "./ui";
+import { label } from "./vault-card";
+import type { VaultData } from "./use-vault";
 
 export function Ledger({
   requests,
   vault,
+  eth,
   onChanged,
 }: {
   requests: SpendRequest[] | null;
   vault: Vault | null;
+  eth: VaultData["eth"];
   onChanged: () => void;
 }) {
   const { signedAccountId, signIn, signOut, callFunction } = useNearWallet();
@@ -32,11 +37,13 @@ export function Ledger({
     if (added.length) setFresh(new Set(added));
   }, [requests]);
 
-  async function act(id: number, method: "approve" | "deny") {
+  async function act(id: number, method: "approve" | "deny", onEth = false) {
     setBusyId(id);
     setError(null);
     try {
-      await callFunction({ contractId: VAULT_ID, method, args: { id }, gas: "60000000000000" });
+      // Approving an Ethereum request also pays for the MPC signature call.
+      const gas = method === "approve" && onEth ? "150000000000000" : "60000000000000";
+      await callFunction({ contractId: VAULT_ID, method, args: { id }, gas });
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "The wallet did not send the transaction.");
@@ -91,12 +98,23 @@ export function Ledger({
               <div className="flex min-w-0 items-center gap-2.5">
                 <StatusPill status={r.status} />
                 <span className="min-w-0 truncate text-sm">
-                  <span className="tabular font-medium">{fmtNear(r.amount, 3)} NEAR</span>
+                  <span className="tabular font-medium">{r.chain === "ethereum" ? `${fmtEth(r.amount)} ETH` : `${fmtNear(r.amount, 3)} NEAR`}</span>
                   <span className="text-faint"> to </span>
-                  <span className="font-mono text-[13px] text-muted">{shortAccount(r.receiver)}</span>
+                  <span className="font-mono text-[13px] text-muted">{r.chain === "ethereum" ? label(r.receiver, eth) : shortAccount(r.receiver)}</span>
+                  {r.chain === "ethereum" && <span className="text-faint"> on Sepolia</span>}
                 </span>
               </div>
-              <span className="shrink-0 text-xs text-faint tabular">#{r.id} · {timeAgo(r.created_at)}</span>
+              <span className="shrink-0 text-xs text-faint tabular">
+                {r.eth_hash && (
+                  <>
+                    <a href={ethExplorerTx(r.eth_hash)} target="_blank" rel="noreferrer" className="underline decoration-line-strong underline-offset-2 hover:text-ink">
+                      etherscan
+                    </a>{" "}
+                    ·{" "}
+                  </>
+                )}
+                #{r.id} · {timeAgo(r.created_at)}
+              </span>
             </div>
             <div className="mt-1.5 flex items-start justify-between gap-3">
               <p className="min-w-0 text-xs text-faint">
@@ -114,7 +132,7 @@ export function Ledger({
                       Deny
                     </button>
                     <button
-                      onClick={() => act(r.id, "approve")}
+                      onClick={() => act(r.id, "approve", r.chain === "ethereum")}
                       disabled={busyId !== null}
                       className="rounded-md bg-ink px-2.5 py-1 text-xs font-medium text-bg hover:bg-ink/85 disabled:opacity-50"
                     >

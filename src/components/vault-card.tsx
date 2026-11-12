@@ -3,16 +3,20 @@
 import { useEffect, useState } from "react";
 import { useNearWallet } from "near-connect-hooks";
 import { VAULT_ID, AGENT_ID, explorerAccount, fmtNear, shortAccount, trippedForever, type AccessKeyInfo, type Vault } from "@/lib/chain";
+import { ethExplorerAddress, fmtEth } from "@/lib/eth-links";
 import { ExternalLink, Pill } from "./ui";
 import { PolicyCheck } from "./policy-check";
+import type { VaultData } from "./use-vault";
 
 export function VaultCard({
   vault,
   agentKeys,
+  eth,
   onChanged,
 }: {
   vault: Vault | null;
   agentKeys: AccessKeyInfo[];
+  eth: VaultData["eth"];
   onChanged: () => void;
 }) {
   const { signedAccountId, callFunction } = useNearWallet();
@@ -89,14 +93,14 @@ export function VaultCard({
 
       <dl className="mt-6 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-line bg-line text-sm">
         <Rule term="Paid automatically" detail={`up to ${vault ? fmtNear(vault.per_tx_cap) : "…"} NEAR each, ${vault ? fmtNear(vault.daily_cap) : "…"} NEAR a day`} />
-        <Rule term="Trusted receivers" detail={vault ? vault.allowlist.map(shortAccount).join(", ") || "none" : "…"} />
+        <Rule term="Trusted receivers" detail={vault ? vault.allowlist.map((a) => label(a, eth)).join(", ") || "none" : "…"} />
         {!!vault?.receiver_caps?.length && (
           <Rule
             term="Per-receiver limit"
             detail={vault.receiver_caps.map((c) => `${shortAccount(c.receiver)} ${fmtNear(c.daily_cap)} NEAR a day`).join(", ")}
           />
         )}
-        <Rule term="Always refused" detail={vault ? vault.blocklist.map(([a]) => shortAccount(a)).join(", ") || "none" : "…"} tone="stop" />
+        <Rule term="Always refused" detail={vault ? vault.blocklist.map(([a]) => label(a, eth)).join(", ") || "none" : "…"} tone="stop" />
         <Rule term="Everything else" detail="waits for the owner to approve" tone="wait" />
         {vault?.tripwire && (
           <Rule
@@ -109,7 +113,32 @@ export function VaultCard({
         )}
       </dl>
 
-      <PolicyCheck />
+      {vault?.eth && (
+        <div className="mt-6 rounded-xl border border-line p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div className="label">Same leash on Ethereum</div>
+            <span className="text-xs text-faint">Sepolia, signed by NEAR Chain Signatures</span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl font-semibold tracking-tight tabular">{eth?.balance != null ? fmtEth(eth.balance, 4) : "…"}</span>
+            <span className="text-muted">ETH</span>
+            <span className="ml-auto font-mono text-[13px] tabular text-muted">
+              {fmtEth(vault.eth_spent_today ?? "0")} / {fmtEth(vault.eth.daily_cap)} today
+            </span>
+          </div>
+          {eth?.address && (
+            <ExternalLink href={ethExplorerAddress(eth.address)} className="mt-1 break-all font-mono text-xs text-muted">
+              {eth.address}
+            </ExternalLink>
+          )}
+          <p className="mt-3 text-xs leading-relaxed text-faint">
+            No one holds this address&rsquo;s private key. NEAR&rsquo;s MPC network signs for it only when the vault contract asks, and the vault only asks
+            after the same rules pass: up to {fmtEth(vault.eth.per_tx_cap)} ETH a payment, the allowlist, the blocklist, the tripwire.
+          </p>
+        </div>
+      )}
+
+      <PolicyCheck eth={eth} />
 
       <div className="mt-6 rounded-xl border border-line bg-raised/60 p-4">
         <div className="flex items-center justify-between gap-3">
@@ -151,6 +180,13 @@ export function VaultCard({
       </div>
     </section>
   );
+}
+
+/** Demo names for the Sepolia counterparties; other accounts in short form. */
+export function label(account: string, eth: VaultData["eth"]) {
+  if (eth && account === eth.shop) return "apishop (eth)";
+  if (eth && account === eth.drainer) return "eth-drainer";
+  return shortAccount(account);
 }
 
 /** Re-renders once a second while `on`, for the tripwire countdown. */

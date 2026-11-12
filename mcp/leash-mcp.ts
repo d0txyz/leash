@@ -1,10 +1,10 @@
 /**
  * Leash MCP server: put any MCP agent (Claude Code, Codex, Cursor, ...) on a leash.
  *
- * The agent gets five tools. Four are free reads. One, leash_spend, signs
- * request_spend with the agent's function-call key, and that key can call
- * nothing else, so whatever the model decides, the vault contract has the
- * last word.
+ * The agent gets seven tools. Five are free reads. Two, leash_spend and
+ * leash_spend_eth, sign request_spend with the agent's function-call key, and
+ * that key can call nothing else, so whatever the model decides, the vault
+ * contract has the last word, on NEAR and on Ethereum (Chain Signatures).
  *
  *   npx tsx mcp/leash-mcp.ts
  *
@@ -26,7 +26,9 @@ const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
 const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
 const { z } = await import("zod");
 const chain = await import("../src/lib/chain");
-const { requestSpend } = await import("../src/lib/agent-wallet");
+const { requestSpend, requestEthSpend } = await import("../src/lib/agent-wallet");
+const eth = await import("../src/lib/eth");
+const { parseEther } = await import("viem");
 const { ruleLabel } = await import("../src/lib/rules");
 type Status = import("../src/lib/chain").Status;
 type SpendRequest = import("../src/lib/chain").SpendRequest;
@@ -41,6 +43,7 @@ const OUTCOME: Record<Status, string> = {
   Denied: "DENIED by the owner",
   Blocked: "BLOCKED",
   Failed: "BOUNCED (the transfer failed and the amount was returned to the allowance)",
+  Signing: "ALLOWED, waiting for the MPC signature",
 };
 
 const NEXT_STEP: Partial<Record<Status, string>> = {
@@ -70,7 +73,8 @@ function receiverOrError(input: string): string {
 }
 
 function describeRequest(r: SpendRequest): string {
-  return `#${r.id}  ${OUTCOME[r.status]}  ${fmtNear(r.amount, 4)} NEAR -> ${r.receiver}  rule: ${ruleLabel(r.rule)}  reason: "${r.reason}"`;
+  const amount = r.chain === "ethereum" ? `${eth.fmtEth(r.amount)} ETH (Sepolia)` : `${fmtNear(r.amount, 4)} NEAR`;
+  return `#${r.id}  ${OUTCOME[r.status]}  ${amount} -> ${r.receiver}  rule: ${ruleLabel(r.rule)}  reason: "${r.reason}"`;
 }
 
 async function guarded<T>(fn: () => Promise<T>) {
@@ -81,11 +85,21 @@ async function guarded<T>(fn: () => Promise<T>) {
   }
 }
 
+const ethAmountSchema = z
+  .string()
+  .regex(/^\d+(\.\d{1,18})?$/, 'a positive decimal amount of ETH, e.g. "0.0005"')
+  .describe('Amount in ETH as a decimal string, e.g. "0.0005"');
+const ethAddressSchema = z
+  .string()
+  .regex(/^0x[0-9a-fA-F]{40}$/, "a 0x Ethereum address")
+  .describe("Receiver Ethereum address (0x...).");
+
 const server = new McpServer(
-  { name: "leash", version: "1.1.0" },
+  { name: "leash", version: "1.3.0" },
   {
     instructions: [
-      `You can pay NEAR from a budget held by the Leash vault contract ${VAULT_ID} on NEAR ${chain.NETWORK}.`,
+      `You can pay NEAR from a budget held by the Leash vault contract ${VAULT_ID} on NEAR ${chain.NETWORK},`,
+      `and ETH on ${eth.ETH_CHAIN_NAME} from the vault's Chain Signatures address (leash_check_eth, leash_spend_eth), under the same rules.`,
       "Your key can only ask. The contract decides every payment on-chain: inside the policy it pays at once,",
       "over a cap or to an unknown receiver it waits for the human owner, and blocklisted receivers or a frozen vault are refused.",
       "Before paying, call leash_check (free, no transaction). Never split a payment to get under a cap,",
@@ -121,6 +135,11 @@ server.registerTool(
               } (${v.recent_blocked ?? 0} counted now).${v.frozen && !v.frozen_by_owner ? " It is TRIPPED right now." : ""}`,
             ]
           : []),
+        ...(v.eth
+          ? [
+              `Ethereum (${eth.ETH_CHAIN_NAME}, Chain Signatures): up to ${eth.fmtEth(v.eth.per_tx_cap)} ETH per payment and ${eth.fmtEth(v.eth.daily_cap)} ETH per day (${eth.fmtEth(v.eth_spent_today ?? "0")} signed today). Vault address: ${await eth.deriveEthAddress().catch(() => "unknown")}.`,
+            ]
+          : ["Ethereum: not enabled on this vault."]),
         "Anything else waits for the owner to approve.",
         `Requests waiting for the owner: ${v.open_pending}. Total requests: ${v.total_requests}.`,
         canSpend ? `You can spend as ${process.env.AGENT_ACCOUNT_ID}.` : "Read-only: no agent key configured.",
@@ -179,6 +198,56 @@ server.registerTool(
           .filter(Boolean)
           .join("\n"),
       );
+    }),
+);
+
+server.registerTool(
+  "leash_check_eth",
+  {
+    title: "Dry-run an Ethereum payment",
+    description: `Ask the vault what it would do with an ETH payment on ${eth.ETH_CHAIN_NAME} right now. Free view call, same rules as leash_spend_eth.`,
+    inputSchema: { to: ethAddressSchema, amount_eth: ethAmountSchema },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  ({ to, amount_eth }) =>
+    guarded(async () => {
+      const d = await chain.viewCheckSpend(to.toLowerCase(), parseEther(amount_eth), "ethereum");
+      const verdict = d.status === "Executed" ? "would be SIGNED and sent" : d.status === "Pending" ? "would WAIT for the owner" : "would be BLOCKED";
+      return text(`${amount_eth} ETH to ${to} ${verdict}. Rule: ${ruleLabel(d.rule)} (${d.rule}). Nothing was sent.`);
+    }),
+);
+
+server.registerTool(
+  "leash_spend_eth",
+  {
+    title: "Ask the vault to pay on Ethereum",
+    description: `Pay ETH on ${eth.ETH_CHAIN_NAME} from the vault's Chain Signatures address. Same request_spend call and same key: the contract decides, builds the transaction itself, and only then asks NEAR's MPC network to sign it. This tool then broadcasts the signed transaction.`,
+    inputSchema: {
+      to: ethAddressSchema,
+      amount_eth: ethAmountSchema,
+      reason: z.string().min(1).max(280).describe("What the payment is for. Stored on-chain and shown to the owner."),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  ({ to, amount_eth, reason }) =>
+    guarded(async () => {
+      if (!canSpend) return text("Read-only: this server has no agent key.", true);
+      const { request, txHash } = await requestEthSpend(to, parseEther(amount_eth), reason);
+      const lines = [
+        `${OUTCOME[request.status]}: ${amount_eth} ETH to ${to}.`,
+        `Rule: ${ruleLabel(request.rule)} (${request.rule}). Request #${request.id}. NEAR transaction: ${explorerTx(txHash)}`,
+      ];
+      if (request.status === "Signing" || request.status === "Executed") {
+        const out = await eth.settleEthRequest(request.id);
+        lines.push(
+          out.stage === "broadcast"
+            ? `Signed by the MPC network and sent on ${eth.ETH_CHAIN_NAME}: ${eth.ethExplorerTx(out.hash)}`
+            : `Not on ${eth.ETH_CHAIN_NAME} yet: ${out.message}`,
+        );
+      } else {
+        lines.push(NEXT_STEP[request.status] ?? "");
+      }
+      return text(lines.filter(Boolean).join("\n"));
     }),
 );
 

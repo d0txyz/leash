@@ -7,6 +7,8 @@ export interface VaultData {
   vault: Vault;
   requests: SpendRequest[];
   agentKeys: AccessKeyInfo[];
+  /** The vault's Chain Signatures address on Sepolia, when cross-chain is on. */
+  eth: { address: string; balance: string | null; shop: string; drainer: string } | null;
   at: number;
 }
 

@@ -14,6 +14,7 @@ export default function Home() {
         </a>
         <div className="flex items-center gap-1 text-sm text-muted">
           <a href="#how" className="rounded-lg px-3 py-1.5 hover:text-ink">How it works</a>
+          <a href="#cross-chain" className="hidden rounded-lg px-3 py-1.5 hover:text-ink sm:inline">Cross-chain</a>
           <a href={REPO} target="_blank" rel="noreferrer" className="rounded-lg px-3 py-1.5 hover:text-ink">GitHub</a>
         </div>
       </nav>
@@ -57,6 +58,7 @@ export default function Home() {
       />
 
       <HowItWorks />
+      <CrossChain />
       <AttackLog />
 
       <footer className="border-t border-line">
@@ -135,6 +137,52 @@ function HowItWorks() {
           ))}
         </ol>
 
+      </div>
+    </section>
+  );
+}
+
+const CROSS = [
+  {
+    title: "The agent asks, same as always",
+    body: "request_spend(receiver: 0x…, amount, chain: \"ethereum\"). Same method, same function-call key. The agent never sees an Ethereum key.",
+  },
+  {
+    title: "The vault decides and builds the transaction",
+    body: "Same rules: caps in ETH, allowlist, blocklist, owner approval, tripwire. If it passes, the contract writes the EIP-1559 transaction itself (nonce, fee ceiling, receiver, amount) and hashes it.",
+  },
+  {
+    title: "NEAR's MPC network signs that hash",
+    body: "The vault calls v1.signer-prod.testnet. The signature is for an address derived from the vault's own account, so nobody else can ask for it. Anyone can broadcast the result; nobody can change it.",
+  },
+];
+
+function CrossChain() {
+  return (
+    <section id="cross-chain" className="border-t border-line">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div className="min-w-0">
+          <div className="label">Chain Signatures</div>
+          <h2 className="mt-3 text-3xl sm:text-4xl font-semibold tracking-tight text-balance">One leash, any chain.</h2>
+          <p className="mt-4 text-muted leading-relaxed">
+            The vault also controls an Ethereum Sepolia address. Its private key does not exist anywhere: NEAR&rsquo;s MPC network signs for it, and only
+            when the vault contract asks. So the policy that guards the agent&rsquo;s NEAR guards its ETH too, with no bridge and no second wallet to secure.
+          </p>
+          <a href="#try" className="mt-6 inline-block text-sm text-muted underline decoration-line-strong underline-offset-4 hover:text-ink">
+            Try &ldquo;Pay on Ethereum&rdquo; and &ldquo;Drain it on Ethereum&rdquo;
+          </a>
+        </div>
+        <ol className="min-w-0 divide-y divide-line border-y border-line">
+          {CROSS.map((c, i) => (
+            <li key={c.title} className="flex gap-4 py-4">
+              <span className="font-mono text-sm text-faint">{String(i + 1).padStart(2, "0")}</span>
+              <div className="min-w-0">
+                <h3 className="font-semibold tracking-tight">{c.title}</h3>
+                <p className="mt-1 text-sm leading-relaxed text-muted">{c.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );

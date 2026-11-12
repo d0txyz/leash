@@ -14,6 +14,8 @@ const RULES: Record<string, string> = {
   approved_by_owner: "approved by owner",
   denied_by_owner: "denied by owner",
   transfer_failed: "transfer bounced",
+  chain_not_enabled: "cross-chain spending is off",
+  signature_failed: "MPC signature failed",
 };
 
 /** "over_per_tx_cap -> approved_by_owner" => "Over the per-payment cap, approved by owner" */

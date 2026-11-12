@@ -1,6 +1,7 @@
 "use client";
 
 import { VAULT_ID, explorerAccount, fmtNear, shortAccount, type SpendRequest, type Vault } from "@/lib/chain";
+import { fmtEth } from "@/lib/eth-links";
 import { StatusPill, ruleLabel, timeAgo } from "./ui";
 
 const ROOT = VAULT_ID.replace(/^vault\./, "");
@@ -61,7 +62,7 @@ export function Challenge({ vault, requests }: { vault: Vault | null; requests: 
                   <li key={r.id} className="py-3">
                     <div className="flex items-baseline justify-between gap-4">
                       <span className="min-w-0 text-ink">
-                        {fmtNear(r.amount, 3)} NEAR to {shortAccount(r.receiver)}
+                        {r.chain === "ethereum" ? `${fmtEth(r.amount)} ETH on Sepolia` : `${fmtNear(r.amount, 3)} NEAR`} to {shortAccount(r.receiver)}
                         <span className="text-faint"> · {timeAgo(r.created_at)}</span>
                       </span>
                       <StatusPill status={r.status} />

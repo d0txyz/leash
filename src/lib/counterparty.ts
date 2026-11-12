@@ -53,20 +53,27 @@ export async function checkCounterparty(receiver: string, vault: Vault): Promise
 
   if (vault.allowlist.includes(receiver)) {
     signals.push({ level: "allow", label: "Known merchant on the owner's allowlist" });
+  } else if (/^0x/.test(receiver)) {
+    signals.push({ level: "warn", label: "Not on the owner's allowlist" });
   } else {
     const twin = lookalikeOf(receiver, vault.allowlist);
     if (twin) signals.push({ level: "block", label: `Lookalike of trusted merchant ${twin}` });
     else signals.push({ level: "warn", label: "Not on the owner's allowlist" });
   }
 
-  try {
-    const acct = await getProvider().viewAccount({ accountId: receiver });
-    const code = String((acct as { code_hash?: string }).code_hash ?? "");
-    if (code && code !== "11111111111111111111111111111111") {
-      signals.push({ level: "warn", label: "Receiver is a smart contract" });
+  const ethAddress = /^0x[0-9a-f]{40}$/.test(receiver);
+  if (ethAddress) {
+    signals.push({ level: "allow", label: "Ethereum address, paid through the vault's Chain Signatures key" });
+  } else {
+    try {
+      const acct = await getProvider().viewAccount({ accountId: receiver });
+      const code = String((acct as { code_hash?: string }).code_hash ?? "");
+      if (code && code !== "11111111111111111111111111111111") {
+        signals.push({ level: "warn", label: "Receiver is a smart contract" });
+      }
+    } catch {
+      signals.push({ level: "block", label: "Account does not exist on NEAR" });
     }
-  } catch {
-    signals.push({ level: "block", label: "Account does not exist on NEAR" });
   }
 
   if (/^[0-9a-f]{64}$/.test(receiver)) signals.push({ level: "warn", label: "Anonymous implicit account" });

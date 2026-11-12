@@ -9,6 +9,7 @@ export const STATUS_META: Record<Status, { label: string; tone: Tone }> = {
   Denied: { label: "Denied", tone: "idle" },
   Blocked: { label: "Blocked", tone: "stop" },
   Failed: { label: "Bounced", tone: "idle" },
+  Signing: { label: "Signing", tone: "wait" },
 };
 
 export type Tone = "paid" | "wait" | "stop" | "idle";

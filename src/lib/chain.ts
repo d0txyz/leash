@@ -10,7 +10,20 @@ const EXPLORER = NETWORK === "mainnet" ? "https://nearblocks.io" : "https://test
 export const explorerTx = (hash: string) => `${EXPLORER}/txns/${hash}`;
 export const explorerAccount = (id: string) => `${EXPLORER}/address/${id}`;
 
-export type Status = "Executed" | "Pending" | "Approved" | "Denied" | "Blocked" | "Failed";
+export type Status = "Executed" | "Pending" | "Approved" | "Denied" | "Blocked" | "Failed" | "Signing";
+
+/** Cross-chain request details (v1.3). Amounts in wei. */
+export interface EthTxInfo {
+  chain_id: number;
+  to: string;
+  value: string;
+  gas_limit: number;
+  max_fee_per_gas: string;
+  max_priority_fee_per_gas: string;
+  nonce: number | null;
+  payload: string | null;
+  signature: { big_r: string; s: string; recovery_id: number } | null;
+}
 
 export interface SpendRequest {
   id: number;
@@ -21,7 +34,14 @@ export interface SpendRequest {
   rule: string;
   created_at: number; // ns
   resolved_at: number | null;
+  /** v1.3: "near" or "ethereum". For "ethereum", amount is wei. */
+  chain?: "near" | "ethereum";
+  eth?: EthTxInfo | null;
+  /** Added by /api/vault for signed Ethereum requests. */
+  eth_hash?: string;
 }
+
+export const isEthRequest = (r: Pick<SpendRequest, "chain">) => r.chain === "ethereum";
 
 export interface Vault {
   owner: string;
@@ -46,6 +66,19 @@ export interface Vault {
   tripwire?: { max_blocked: number; window_secs: number; cooldown_secs: number | null } | null;
   recent_blocked?: number;
   stats?: VaultStats;
+  // v1.3: cross-chain through Chain Signatures. Amounts in wei.
+  eth?: {
+    chain_id: number;
+    mpc_contract: string;
+    per_tx_cap: string;
+    daily_cap: string;
+    max_fee_per_gas: string;
+    max_priority_fee_per_gas: string;
+    next_nonce: number;
+  } | null;
+  eth_spent_today?: string;
+  wei_paid?: string;
+  wei_refused?: string;
 }
 
 export interface VaultStats {
@@ -96,11 +129,11 @@ export async function viewRequests(limit = 30): Promise<SpendRequest[]> {
 }
 
 /** Free dry run of request_spend: same rules, no transaction, nothing written. */
-export async function viewCheckSpend(receiver: string, amountYocto: bigint | string): Promise<Decision> {
+export async function viewCheckSpend(receiver: string, amountYocto: bigint | string, chain?: "ethereum"): Promise<Decision> {
   return (await getProvider().callFunction({
     contractId: VAULT_ID,
     method: "check_spend",
-    args: { receiver, amount: amountYocto.toString() },
+    args: { receiver, amount: amountYocto.toString(), ...(chain ? { chain } : {}) },
   })) as Decision;
 }
 
@@ -111,7 +144,7 @@ export async function viewRequest(id: number): Promise<SpendRequest | null> {
 /** "cafe" -> "cafe.<root>" for the demo's short names; full account ids pass through. */
 export function resolveAccount(input: string): string {
   const id = input.trim().toLowerCase();
-  if (!id || id.includes(".") || /^[0-9a-f]{64}$/.test(id)) return id;
+  if (!id || id.includes(".") || /^0x[0-9a-f]{40}$/.test(id) || /^[0-9a-f]{64}$/.test(id)) return id;
   const root = VAULT_ID.replace(/^vault\./, "");
   return root && root !== VAULT_ID ? `${id}.${root}` : id;
 }
@@ -140,5 +173,6 @@ export function toYocto(near: string | number): bigint {
 }
 
 export function shortAccount(id: string) {
+  if (/^0x[0-9a-f]{40}$/i.test(id)) return `${id.slice(0, 6)}…${id.slice(-4)}`;
   return id.replace(/\.leash-[a-z0-9]+\.testnet$/, "");
 }
