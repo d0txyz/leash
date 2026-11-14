@@ -1,0 +1,25 @@
+# For reviewers who prefer Foundry. The suite is developed and run with
+# Hardhat 3 (`npm test`); the tests are plain forge-std tests.
+# Run `npm install` first: dependencies come from node_modules.
+[profile.default]
+src = "contracts"
+test = "test"
+out = "out"
+cache_path = "cache_forge"
+libs = ["node_modules"]
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+remappings = [
+  "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+  "forge-std/=node_modules/forge-std/src/",
+]
+
+[fuzz]
+runs = 512
+
+[invariant]
+runs = 64
+depth = 100
+fail_on_revert = false

@@ -1,0 +1,17 @@
+{
+  "name": "leash-evm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Leash vault for EVM chains: an on-chain spending policy for an AI agent, in Solidity.",
+  "license": "MIT",
+  "scripts": {
+    "build": "hardhat build",
+    "test": "hardhat test solidity"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "5.6.1",
+    "forge-std": "github:foundry-rs/forge-std#v1.16.2",
+    "hardhat": "3.22.0"
+  }
+}
