@@ -172,10 +172,15 @@ The agent's own check (`src/lib/counterparty.ts`) catches most problems early an
 | NEAR Connect (`near-connect-hooks`) | Owner sign-in, approve, deny and freeze in the browser |
 | NEAR testnet faucet | Account creation in `npm run setup:testnet` |
 
+## Leash on EVM (in development)
+
+The same policy as a Solidity contract, for USDC on Base and other EVM chains, lives in [`evm/`](evm/). It is a separate, self-contained project: a vault that holds one ERC-20, the same caps, lists, approval queue and tripwire, and a factory that deploys a vault per owner. It is not deployed and not audited yet, and nothing in the NEAR demo depends on it. See [`evm/README.md`](evm/README.md) for the rules, the design notes and how to run its 65 tests.
+
 ## Repo layout
 
 ```
 contract/            Rust vault contract and its unit tests
+evm/                 Solidity vault for EVM chains (in development), with its own tests
 scripts/
   setup-testnet.ts   creates accounts, deploys and configures the vault
   attack-demo.ts     tries every way to move money with the agent's key
